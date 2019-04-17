@@ -2,7 +2,7 @@ region = "us-east-1"
 
 profile = "default"
 
-subnet-id = "subnet-0489d77c4c7e192c7"
+subnet-id = "id-of-yout-subnet"
 
 credentials_file = "/home/rnair/.aws/rakesh_credentials"
 
