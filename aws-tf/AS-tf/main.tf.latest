@@ -1,0 +1,193 @@
+resource "aws_vpc" "main-tf" {
+  cidr_blocks          = "${var.cidr_vpc}"
+  instance_tenancy     = "default"
+  enable_dns_hostnames = true
+
+  tags {
+    Name        = "main-vpc"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_internet_gateway" "main-gw" {
+  vpc_id = "${aws_vpc.main-tf.id}"
+
+  tags {
+    Name        = "VPC MAIN-IGW"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_subnet" "main-subnet-public" {
+  vpc_id                  = "${aws_vpc.main-tf.id}"
+  cidr_blocks             = "${var.cidr_subnet}"
+  map_public_ip_on_launch = "true"
+  availability_zone       = "${var.availability_zone}"
+
+  tags {
+    Name        = "main-public-subnet"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_route_table" "main-public-rt" {
+  vpc_id = "${aws_vpc.main-tf.id}"
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = "${aws_internet_gateway.main-gw.id}"
+  }
+
+  tags {
+    Name        = "Public Subnet RT"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_route_table_association" "main-subnet-A-rt" {
+  subnet_id      = "${aws_subnet.main-subnet-A.id}"
+  route_table_id = "${aws_route_table.main-public-rt.id}"
+}
+
+resource "aws_security_group" "sg_80" {
+  name        = "allow_http"
+  description = "Allow http inbound traffic"
+
+  #  vpc_id      = "vpc-e7de549d"
+  vpc_id = "${aws_vpc.main-tf.id}"
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags {
+    Name        = "allow-http-ssh-access"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+//resource "aws_key_pair" "ec2key" {
+//  key_name   = "ec2_publicKey"
+//  public_key = "${file(var.public_key_path)}"
+//}
+
+resource "aws_launch_configuration" "AS_launch_config" {
+  image_id                    = "${var.instance_ami}"
+  instance_type               = "${var.instance_type}"
+  associate_public_ip_address = true
+  key_name                    = "rakesh-ec2-east-1"
+  user_data                   = "${data.template_file.template_main.rendered}"
+
+  //iam_instance_profile      = "yetToCreate"
+  security_groups = ["${aws_security_group.sg_80.id}"]
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = {
+    Name        = "ASlaunch"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_autoscaling_group" "AS_apache" {
+  launch_configuration = "${aws_launch_configuration.AS_launch_config.id}"
+  availability_zones   = ["${data.aws_availability_zones.all.names}"]
+  min_size             = 2
+  max_size             = 8
+  desired_capacity     = 2
+  target_group_arns    = ["${aws_alb_target_group.alb_targets}"]
+
+  tags {
+    Name        = "apache_AS"
+    value       = "apache_main"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_lb" "apache_lb" {
+  name               = "apache-alb"
+  security_groups    = ["${aws_security_group.sg_80.id}"]
+  load_balancer_type = "application"
+  internal           = false
+  subnet_id          = "${ws_subnet.main-subnet-A.id}"
+  idle_timeout       = 60
+
+  tags {
+    Name        = "apache-alb"
+    Environment = "${var.environment_tags}"
+  }
+
+  access_logs {
+    bucket = "${var.s3_bucket}"
+    prefix = "ELB-logs"
+  }
+}
+
+resource "aws_alb_target_group" "alb_targets" {
+  name     = "apache-alb-target"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = "${aws_vpc.main-tf.id}"
+
+  health_check {
+    healthy_threshold   = 2
+    interval            = 15
+    path                = "/"
+    port                = 80
+    timeout             = 10
+    unhealthy_threshold = 2
+  }
+
+  tags {
+    Name        = "alb-target"
+    Environment = "${var.environment_tags}"
+  }
+}
+
+resource "aws_alb_listener" "alb_listener" {
+  load_balancer_arn = "${aws_lb.apache_lb.arn}"
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    target_group_arn = "${aws_alb_target_group.alb_targets.arn}"
+    type             = "forward"
+  }
+}
+
+resource "aws_autoscaling_attachment" "asg_apache" {
+  alb_target_group_arn   = "${aws_alb_target_group.alb_targets.id}"
+  autoscaling_group_name = "${aws_autoscaling_group.AS_apache.id}"
+}
+
+data "template_file" "template_main" {
+  template = "${file("templates/exec-main.tpl")}"
+}
+
+data "aws_availability_zones" "all" {}
+
+output "ip" {
+  value = {
+    //    "apache-main public ip" = "${aws_instance.apache-main.public_ip}"
+    "apache-load-balancer" = "${}"
+  }
+}
