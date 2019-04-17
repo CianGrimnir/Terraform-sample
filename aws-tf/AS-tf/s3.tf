@@ -17,7 +17,7 @@ resource "aws_s3_bucket_policy" "lb-bucket-policy" {
         "s3:PutObject"
       ],
       "Effect": "Allow",
-      "Resource": "arn:aws:s3:::lb-logs-tf-test/ELB-logs/AWSLogs/AWS_ACCT_ID/*",
+      "Resource": "arn:aws:s3:::lb-logs-tf-test/ELB-logs/AWSLogs/IAM_ID/*",
       "Principal": {
         "AWS": [
           "127311923021"
