@@ -130,6 +130,22 @@ resource "aws_autoscaling_group" "AS_apache" {
   }
 }
 
+resource "aws_autoscaling_policy" "AS-scale-up" {
+  name                   = "AS-scale-up"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 300
+  autoscaling_group_name = "${aws_autoscaling_group.AS_apache.id}"
+}
+
+resource "aws_autoscaling_policy" "AS-scale-down" {
+  name                   = "AS-scale-down"
+  scaling_adjustment     = -1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 300
+  autoscaling_group_name = "${aws_autoscaling_group.AS_apache.id}"
+}
+
 resource "aws_lb" "apache_lb" {
   name               = "apache-alb"
   security_groups    = ["${aws_security_group.sg_80.id}"]
@@ -189,7 +205,6 @@ data "template_file" "template_main" {
 
 output "ip" {
   value = {
-    //    "apache-main public ip" = "${aws_instance.apache-main.public_ip}"
     "apache-load-balancer" = "${aws_lb.apache_lb.dns_name}"
   }
 }
